@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Tuple
 from smolagents import CodeAgent, LiteLLMModel, InferenceClientModel
 from smolagents import ToolCallingAgent
 from tools import CheckNumericClaim
+from tools import HttpRAGTool 
 
 import re
 
@@ -35,6 +36,32 @@ def _extract_hypothesis(msg: str) -> str:
     m = re.search(r"area of a circle with r\s*=\s*\d+(?:\.\d+)?\s*is\s*\d+(?:\.\d+)?", msg.lower())
     return m.group(0) if m else ""
 
+def _extract_sources_from_ctx(ctx: str) -> list[str]:
+    urls = re.findall(r'(https?://[^\s\)\]]+)', ctx)
+    # Keep order & unique
+    seen, ordered = set(), []
+    for u in urls:
+        if u not in seen:
+            seen.add(u); ordered.append(u)
+    return ordered
+
+def _parse_rag(msg: str):
+    """
+    Soporta:
+      RAG: pregunta...
+      RAG[https://u1,https://u2]: pregunta...
+    """
+    m = re.match(r"^\s*rag\s*:(.*)$", msg, flags=re.I)
+    if m:
+        return [], m.group(1).strip()
+    m = re.match(r"^\s*rag\s*\[([^\]]*)\]\s*:\s*(.*)$", msg, flags=re.I)
+    if m:
+        urls = [u.strip() for u in m.group(1).split(",") if u.strip()]
+        q = m.group(2).strip()
+        return urls, q
+    return None, None
+
+
 
 class SocraticController:
     def __init__(self, model_backend="Qwen/Qwen2.5-7B-Instruct", tau=0.7, offline=True):
@@ -46,7 +73,10 @@ class SocraticController:
         self.lrt = LRT()
         self.ledger = Ledger()
         self.tools = [CheckNumericClaim()]
+        self.tools.append(HttpRAGTool(base_url="http://localhost:8000"))
         self.offline = offline
+        self.rag_flow: Optional[Dict[str, Any]] = None
+
         if not offline:
             self.model = InferenceClientModel(
                 model_id=model_backend,
@@ -54,6 +84,12 @@ class SocraticController:
             )
         else:
             self.model = None
+
+    def _get_tool(self, name: str):
+        for t in self.tools:
+            if getattr(t, "name", "") == name:
+                return t
+        return None
 
     def readiness(self) -> float:
         coverage = 0.0
@@ -117,6 +153,112 @@ class SocraticController:
     def step(self, learner_msg: str) -> Dict[str, Any]:
         # ------ state updates (same as before) ------
         msg_low = learner_msg.lower()
+        low = msg_low.lower()
+
+        # --- RAG convention: handle early and return ---
+        urls, topic = _parse_rag(learner_msg)
+        if topic is not None:
+            # Initialize a multi-turn RAG tutoring flow
+            self.rag_flow = {"phase": "ELICIT", "topic": topic, "urls": urls or [], "ctx": None}
+            return {
+                "act": "ASK",
+                "stance": "EXPLORE",
+                "R": self.R,
+                "text": (
+                    "Before I look things up: what do you already know about this topic, "
+                    "and what do you most want to understand "
+                    #"‘how to wire it in code’, ‘tradeoffs vs. fine-tuning’)?"
+                ),
+                "done": False,
+            }
+
+        # ------ RAG flow: continue across turns ------
+        if self.rag_flow:
+            phase = self.rag_flow["phase"]
+            topic = self.rag_flow["topic"]
+            urls  = self.rag_flow["urls"]
+
+            if phase == "ELICIT":
+                # We got the learner's prior. Now retrieve.
+                rag = self._get_tool("web_rag")
+                # If no URLs provided, give sensible defaults
+                if not urls:
+                    urls = [
+                        "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+                        "https://fastapi.tiangolo.com/",
+                    ]
+                    self.rag_flow["urls"] = urls
+                ctx = rag.forward(question=topic, urls=urls, top_k=4) if rag else "RAG tool not available."
+                self.rag_flow["ctx"] = ctx
+                self.rag_flow["phase"] = "SYNTH"
+
+                sources = _extract_sources_from_ctx(ctx)
+                sources_block = "" if not sources else "\n\nSources:\n" + "\n".join(f"- {u}" for u in sources)
+                scaffold = (
+                    "Use this structure:\n"
+                    "1) Claim (1–2 lines)\n"
+                    "2) Evidence (quote or paraphrase from the snippets + URL)\n"
+                    "3) Reasoning (why the evidence supports the claim)\n"
+                    "4) Limits/Risks (when RAG might still fail)\n"
+                )
+                return {
+                    "act": "VERIFY",
+                    "stance": "VERIFY",
+                    "R": max(self.R, 0.6),
+                    "text": (
+                        "Here are relevant snippets. Read them, then draft your explanation.\n\n"
+                        f"{ctx}{sources_block}\n\n"
+                        "Start with “My current understanding is…”, then follow the scaffold below.\n\n" + scaffold
+                    ),
+                    "done": False,
+                }
+
+            elif phase == "SYNTH":
+                # Provide coach feedback based on learner draft + the retrieved context
+                ctx = self.rag_flow.get("ctx") or ""
+                system = (
+                    "You are a Socratic tutor. Give concise feedback on the student's explanation. "
+                    "Do NOT overwrite their answer; instead, evaluate (correctness, evidence use, clarity) "
+                    "and suggest one concrete improvement. Keep to 4–6 lines."
+                )
+                messages = [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": f"Context snippets:\n{ctx}\n\nStudent draft:\n{learner_msg}"},
+                ]
+                try:
+                    resp = self.model.generate(messages, max_tokens=180, temperature=0.2)
+                    feedback = (resp.content or "").strip()
+                except Exception as e:
+                    feedback = f"[feedback error: {e}]"
+
+                # Move to a short quiz/check
+                self.rag_flow["phase"] = "QUIZ"
+                quiz = (
+                    "Quick check (1–2 lines each):\n"
+                    f"• Summarize the main mechanism discussed.\n"
+                     "• Cite one concrete fact from the snippets (include the URL).\n"
+                     "• Name one limitation or risk mentioned."
+                )
+                return {
+                    "act": "SUMMARIZE",
+                    "stance": "EXPLORE",
+                    "R": max(self.R, 0.65),
+                    "text": feedback + "\n\n" + quiz,
+                    "done": False,
+                }
+
+            elif phase == "QUIZ":
+                # Close the loop: brief verification + finalize
+                self.rag_flow = None
+                return {
+                    "act": "VERIFY",
+                    "stance": "VERIFY",
+                    "R": max(self.R, 0.7),
+                    "text": (
+                        "Thanks. Based on your answer, you’ve identified the key mechanism "
+                    ),
+                    "done": True,
+                }
 
         hyp = _extract_hypothesis(learner_msg)
         if hyp:

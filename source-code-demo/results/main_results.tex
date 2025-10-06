@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\caption{Empirical results from executable runs. Deference = no premature answers in non-VERIFY turns. Tool discipline = fraction of tool calls inside VERIFY.}
+\label{tab:empirical}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Scenario & Deference$\uparrow$ & Tool$\uparrow$ & Success$\uparrow$ & Turns$\downarrow$ & Final $R$ & Leakage$\downarrow$ & Quiz \\
+\midrule
+Numeric r=3 (True) & 1.00 & 1.00 & \cmark & 4 & 0.55 & 0.00 & -- \\
+Numeric r=4 (False) & 1.00 & 1.00 & \cmark & 4 & 0.80 & 0.00 & -- \\
+RAG mini-lesson & 1.00 & 1.00 & \cmark & 4 & 0.80 & 0.00 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}

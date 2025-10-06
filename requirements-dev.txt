@@ -1,0 +1,11 @@
+ipython
+jupyter notebook
+beautifulsoup4
+faiss-cpu
+fastapi
+lxml
+litellm
+requests
+sentence-transformers
+smolagents
+uvicorn
