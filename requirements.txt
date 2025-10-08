@@ -1,9 +1,9 @@
+ipython
 beautifulsoup4
-faiss-cpu
 fastapi
 lxml
-litellm
 requests
-sentence-transformers
 smolagents
+gradio
+huggingface_hub[cli]
 uvicorn
