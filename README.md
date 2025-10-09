@@ -11,9 +11,16 @@ cd socratic-agent
 python -m venv .venv && source .venv/bin/activate   # or conda env create -f environment.yml
 pip install -r requirements.txt
 hf auth login # log with hf account
+````
+
+````bash
 cd source-code-demo
 # run example
 python server.py &  (sleep 10  && (clear  & python demo.py))
 # run chat
-python server.py &  (sleep 10  && (clear  & python chat_app.py))
+# python server.py &  (sleep 10  && (clear  & python chat_app.py))
 ````
+WIP
+
+* Presentation
+* bibtext
