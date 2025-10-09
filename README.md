@@ -3,8 +3,6 @@
 ## What is it?
 A small, auditable Socratic tutor that externalizes the learner’s reasoning. It uses a deference gate (τ, γ) to delay answers and restricts interaction to audited speech acts.
 
-## 10-second preview
-![demo](assets/preview.gif)
 
 ## Try it in 2 minutes (local)
 ```bash
@@ -18,3 +16,4 @@ cd source-code-demo
 python server.py &  (sleep 10  && (clear  & python demo.py))
 # run chat
 python server.py &  (sleep 10  && (clear  & python chat_app.py))
+````
