@@ -8,7 +8,7 @@ A small, auditable Socratic tutor that externalizes the learner’s reasoning. I
 ```bash
 git clone https://github.com/CarlosUrteaga/socratic-agent
 cd socratic-agent
-python -m venv .venv && source .venv/bin/activate   # or conda env create -f environment.yml
+python -m venv .socratic && source .socratic/bin/activate   # or conda env create -f environment.yml
 pip install -r requirements.txt
 hf auth login # log with hf account
 ````
