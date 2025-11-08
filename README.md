@@ -38,6 +38,6 @@ Reasoning: the model can cite facts instead of guessing. Limits: bad or off-topi
 # 4) Quiz answers → controller finalizes
 It reduces hallucinations because retrieved context constrains the model to verifiable facts. RAG can fail if retrieval is irrelevant/incorrect or the model ignores context.
 ```
+img
 
-* Presentation
-* bibtext
+![01](img/01.png)
